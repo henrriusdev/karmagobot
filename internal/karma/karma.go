@@ -3,12 +3,15 @@ package karma
 import (
 	"database/sql"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
+	"log"
+	"os"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 type Karma struct {
-	User        int
+	User        string
 	Count       int
 	LastUpdated time.Time
 }
@@ -19,23 +22,23 @@ type KarmaModel struct {
 
 // CREATE & INSERT METHODS
 
-func (m *KarmaModel) CreateTable(channel string, users ...int) error {
-	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s`(user_id INT NOT NULL PRIMARY KEY, karma INT NOT NULL, last_updated DATETIME NOT NULL)", channel)
-	_, err := m.DB.Exec(query)
-	if err != nil {
+func (m *KarmaModel) CreateTable(channel string) error {
+	infoLog := log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime|log.Lshortfile)
+	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s`(username VARCHAR(200) NOT NULL PRIMARY KEY, karma INT NOT NULL, last_updated DATETIME NOT NULL)", channel)
+	if _, err := m.DB.Exec(query); err != nil {
 		return err
 	}
 
-	query = fmt.Sprintf("INSERT IGNORE INTO `%s`(user_id, karma, last_updated) VALUES (?, ?, ?)")
-	for user := range users {
-		_, err = m.DB.Exec(query, user, 0, time.Now())
-		if err != nil {
-			return err
-		}
+	infoLog.Println("Created table for: ", channel, "group")
+
+	return nil
+}
+
+func (m KarmaModel) InsertUsers(username, channel string) error {
+	query := fmt.Sprintf("INSERT INTO `%s`(username, karma, last_updated) VALUES (?, ?, ?)", channel)
+	if _, err := m.DB.Exec(query, username, 0, time.Now()); err != nil {
+		return err
 	}
-
-	fmt.Println("Created table for: ", channel, "group")
-
 	return nil
 }
 
@@ -44,75 +47,93 @@ func (m *KarmaModel) CreateTable(channel string, users ...int) error {
 func (m *KarmaModel) GetKarmas(channel string, top bool) ([]*Karma, error) {
 	var query string
 	if top {
-		query = fmt.Sprintf("SELECT user, karma FROM `%s` ORDER BY ASC TOP 10", channel)
+		query = fmt.Sprintf("SELECT username, karma FROM `%s` WHERE karma > 0 ORDER BY karma DESC LIMIT 10", channel)
 	} else {
-		query = fmt.Sprintf("SELECT user, karma FROM `%s` ORDER BY DESC TOP 10", channel)
+		query = fmt.Sprintf("SELECT username, karma FROM `%s` WHERE karma < 0 ORDER BY karma ASC LIMIT 10", channel)
 	}
 
 	rows, err := m.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 
-	var karmas []*Karma
+	karmas := []*Karma{}
 
 	for rows.Next() {
-		var karma *Karma
-		if err = rows.Scan(&karma.User, &karma.Count); err != nil {
-			if err == sql.ErrNoRows {
-				return nil, err
-			}
-
+		k := &Karma{}
+		err := rows.Scan(&k.User, &k.Count)
+		if err != nil {
 			return nil, err
 		}
 
-		karmas = append(karmas, karma)
+		karmas = append(karmas, k)
 	}
+
+	if rows.Err() != nil {
+		return nil, err
+	}
+
 	return karmas, nil
 }
 
-func (m *KarmaModel) GetActualKarma(userId int, channel string) (int, error) {
+func (m *KarmaModel) GetActualKarma(username, channel string) (int, error) {
 	var user Karma
-	query := fmt.Sprintf("SELECT karma FROM `%s` WHERE user_id = ?", channel)
+	query := fmt.Sprintf("SELECT karma FROM `%s` WHERE username = ?", channel)
 
-	if err := m.DB.QueryRow(query, userId).Scan(&user.Count); err != nil {
-		if err == sql.ErrNoRows {
-			return 0, err
-		}
+	if err := m.DB.QueryRow(query, username).Scan(&user.Count); err != nil {
 		return 0, err
 	}
 
 	return user.Count, nil
 }
 
-func (m *KarmaModel) GetLastUpdated(userId int, channel string) (time.Time, error) {
+func (m *KarmaModel) GetLastUpdated(username, channel string) (time.Time, bool) {
 	var user Karma
-	query := fmt.Sprintf("SELECT last_updated FROM `%s` WHERE user_id = ?", channel)
-
-	if err := m.DB.QueryRow(query, userId).Scan(&user.LastUpdated); err != nil {
-		if err == sql.ErrNoRows {
-			return user.LastUpdated, err
-		}
-		return user.LastUpdated, err
+	if channel == "" {
+		return user.LastUpdated, false
 	}
 
-	return user.LastUpdated, nil
+	query := fmt.Sprintf("SELECT last_updated FROM `%s` WHERE username = ?", channel)
+
+	if err := m.DB.QueryRow(query, username).Scan(&user.LastUpdated); err != nil {
+		if err == sql.ErrNoRows {
+			err = m.InsertUsers(username, channel)
+			if err != nil {
+				return user.LastUpdated, true
+			}
+
+			if err := m.DB.QueryRow(query, username).Scan(&user.LastUpdated); err != nil {
+				return user.LastUpdated, true
+			}
+			return user.LastUpdated, false
+		}
+		return user.LastUpdated, true
+	}
+
+	return user.LastUpdated, false
 }
 
 // UPDATE METHODS
 
-func (m *KarmaModel) AddKarma(userId int, channel string) error {
-	query := fmt.Sprintf("UPDATE `%s` SET Karma = ? WHERE user_id = ?", channel)
+func (m *KarmaModel) AddKarma(karmaTransmitter, karmaReceiver, channel string) error {
+	query := fmt.Sprintf("UPDATE `%s` SET karma = ? WHERE username = ?", channel)
 
-	karma, err := m.GetActualKarma(userId, channel)
+	karma, err := m.GetActualKarma(karmaReceiver, channel)
 	if err != nil {
-		return err
+		err := m.InsertUsers(karmaReceiver, channel)
+		if err != nil {
+			return err
+		}
 	}
+
 	karma++
-	_, err = m.DB.Exec(query, userId, karma, time.Now())
+	_, err = m.DB.Exec(query, karma, karmaReceiver)
 	if err != nil {
 		return err
 	}
 
-	err = m.updateLastKarma(time.Now(), channel, userId)
+	err = m.updateLastKarma(time.Now(), channel, karmaTransmitter)
 	if err != nil {
 		return err
 	}
@@ -120,20 +141,24 @@ func (m *KarmaModel) AddKarma(userId int, channel string) error {
 	return nil
 }
 
-func (m *KarmaModel) SubstractKarma(userId int, channel string) error {
-	query := fmt.Sprintf("UPDATE `%s` SET Karma = ? WHERE user_id = ?", channel)
+func (m *KarmaModel) SubstractKarma(karmaTransmitter, karmaReceiver, channel string) error {
+	query := fmt.Sprintf("UPDATE `%s` SET Karma = ? WHERE username = ?", channel)
 
-	karma, err := m.GetActualKarma(userId, channel)
+	karma, err := m.GetActualKarma(karmaReceiver, channel)
 	if err != nil {
-		return err
+		err := m.InsertUsers(karmaReceiver, channel)
+		if err != nil {
+			return err
+		}
 	}
+
 	karma--
-	_, err = m.DB.Exec(query, userId, karma, time.Now())
+	_, err = m.DB.Exec(query, karma, karmaReceiver)
 	if err != nil {
 		return err
 	}
 
-	err = m.updateLastKarma(time.Now(), channel, userId)
+	err = m.updateLastKarma(time.Now(), channel, karmaTransmitter)
 	if err != nil {
 		return err
 	}
@@ -141,9 +166,9 @@ func (m *KarmaModel) SubstractKarma(userId int, channel string) error {
 	return nil
 }
 
-func (m *KarmaModel) updateLastKarma(date time.Time, channel string, userId int) error {
-	query := fmt.Sprintf("UPDATE `%s` SET last_updated = ? WHERE user_id = ?", channel)
-	_, err := m.DB.Exec(query, userId, date, time.Now())
+func (m *KarmaModel) updateLastKarma(date time.Time, channel, username string) error {
+	query := fmt.Sprintf("UPDATE `%s` SET last_updated = ? WHERE username = ?", channel)
+	_, err := m.DB.Exec(query, date, username)
 	if err != nil {
 		return err
 	}
