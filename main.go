@@ -58,16 +58,16 @@ func main() {
 			cmdText := update.Message.Command()
 			switch cmdText {
 			case "karma":
-				userKarma, err := karmas.GetActualKarma(update.Message.From.UserName, chat)
+				userKarma, err := karmas.GetActualKarma(update.Message.From.ID, chat)
 				if err != nil {
 					errorLog.Println(err)
-					err = karmas.InsertUsers(update.Message.From.UserName, chat)
+					err = karmas.InsertUsers(update.Message.From.ID, chat)
 					if err != nil {
 						errorLog.Println(err)
 						continue
 					}
 
-					userKarma, err = karmas.GetActualKarma(update.Message.From.UserName, chat)
+					userKarma, err = karmas.GetActualKarma(update.Message.From.ID, chat)
 					if err != nil {
 						errorLog.Println(err)
 						continue
@@ -89,7 +89,12 @@ func main() {
 
 				usersString := "Most loved users of " + chat + "\n"
 				for i, user := range users {
-					usersString += fmt.Sprintf("%d. %s has %d of karma.\n", i+1, user.User, user.Count)
+					config := tgbotapi.GetChatMemberConfig{tgbotapi.ChatConfigWithUser{ChatID: update.Message.Chat.ID, UserID: user.User}}
+					member, err := bot.GetChatMember(config)
+					if err != nil {
+						return
+					}
+					usersString += fmt.Sprintf("%d. %s has %d of karma.\n", i+1, member.User.FirstName, user.Count)
 				}
 
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, usersString)
@@ -106,7 +111,12 @@ func main() {
 
 				usersString := "Most hated users of " + chat + "\n"
 				for i, user := range users {
-					usersString += fmt.Sprintf("%d. %s has %d of karma.\n", i+1, user.User, user.Count)
+					config := tgbotapi.GetChatMemberConfig{tgbotapi.ChatConfigWithUser{ChatID: update.Message.Chat.ID, UserID: user.User}}
+					member, err := bot.GetChatMember(config)
+					if err != nil {
+						return
+					}
+					usersString += fmt.Sprintf("%d. %s has %d of karma.\n", i+1, member.User.FirstName, user.Count)
 				}
 
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, usersString)
@@ -130,7 +140,7 @@ func main() {
 			continue
 		}
 
-		lastUpdated, noRows := karmas.GetLastUpdated(update.Message.From.UserName, chat)
+		lastUpdated, noRows := karmas.GetLastUpdated(update.Message.From.ID, chat)
 		if noRows {
 			lastUpdated, _ = time.Parse("0001-01-01 00:00:00 +0000 UTC", "0001-01-01 00:00:00 +0000 UTC")
 		}
@@ -154,7 +164,7 @@ func main() {
 				}
 				continue
 			} else if strings.Contains(update.Message.Text, "+1") {
-				err = karmas.AddKarma(update.Message.From.UserName, update.Message.ReplyToMessage.From.UserName, chat)
+				err = karmas.AddKarma(update.Message.From.ID, update.Message.ReplyToMessage.From.ID, chat)
 				if err != nil {
 					errorLog.Println(err)
 					continue
@@ -162,7 +172,7 @@ func main() {
 
 			} else if strings.Contains(update.Message.Text, "-1") {
 				fmt.Println("me diste -1", update.Message.Text)
-				err = karmas.SubstractKarma(update.Message.From.UserName, update.Message.ReplyToMessage.From.UserName, chat)
+				err = karmas.SubstractKarma(update.Message.From.ID, update.Message.ReplyToMessage.From.ID, chat)
 				if err != nil {
 					errorLog.Println(err)
 					continue
@@ -172,7 +182,7 @@ func main() {
 			continue
 		}
 
-		userKarma, err := karmas.GetActualKarma(update.Message.ReplyToMessage.From.UserName, chat)
+		userKarma, err := karmas.GetActualKarma(update.Message.ReplyToMessage.From.ID, chat)
 		if err != nil {
 			errorLog.Println(err)
 			continue
