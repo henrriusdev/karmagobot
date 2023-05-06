@@ -3,19 +3,20 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"karmagot/internal/karma"
 	"log"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"karmagot/internal/karma"
+
 	"github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func main() {
 	infoLog := log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime|log.Lshortfile)
-	errorLog := log.New(os.Stderr, "INFO\t", log.Ldate|log.Ltime|log.Lshortfile)
+	errorLog := log.New(os.Stderr, "ERROR\t", log.Ldate|log.Ltime|log.Lshortfile)
 
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_BOT_API"))
 	if err != nil {
