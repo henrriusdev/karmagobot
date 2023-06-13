@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"karmagot/internal/karma"
 
-	"github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func main() {
@@ -34,6 +35,9 @@ func main() {
 	karmas := karma.KarmaModel{DB: db}
 	updateConfig := tgbotapi.NewUpdate(0)
 	updateConfig.Timeout = 30
+
+	plusOneRegex := regexp.MustCompile(`\+1\b`)
+	minusOneRegex := regexp.MustCompile(`\-1\b`)
 
 	updates := bot.GetUpdatesChan(updateConfig)
 	for update := range updates {
@@ -146,7 +150,7 @@ func main() {
 		}
 
 		// For +1 or -1
-		if strings.Contains(update.Message.Text, "+1") || strings.Contains(update.Message.Text, "-1") {
+		if plusOneRegex.MatchString(update.Message.Text) || minusOneRegex.MatchString(update.Message.Text) {
 			if update.Message.From.UserName == update.Message.ReplyToMessage.From.UserName {
 				msgError := tgbotapi.NewMessage(update.Message.Chat.ID, "You cannot add or subtract karma yourself.")
 				if _, err := bot.Send(msgError); err != nil {
@@ -163,14 +167,14 @@ func main() {
 					return
 				}
 				continue
-			} else if strings.Contains(update.Message.Text, "+1") {
+			} else if plusOneRegex.MatchString(update.Message.Text) {
 				err = karmas.AddKarma(update.Message.From.ID, update.Message.ReplyToMessage.From.ID, chat)
 				if err != nil {
 					errorLog.Println(err)
 					continue
 				}
 
-			} else if strings.Contains(update.Message.Text, "-1") {
+			} else if minusOneRegex.MatchString(update.Message.Text) {
 				fmt.Println("me diste -1", update.Message.Text)
 				err = karmas.SubstractKarma(update.Message.From.ID, update.Message.ReplyToMessage.From.ID, chat)
 				if err != nil {
